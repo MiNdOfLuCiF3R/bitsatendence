@@ -1,164 +1,226 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BITS Attendance</title>
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
-  <!-- Obsidian style -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BITS Attendance System</title>
   <style>
-    * { box-sizing: border-box; }
     body {
+      margin: 0;
       font-family: monospace;
       background-color: #1e1e1e;
       color: #d4d4d4;
-      margin: 0; padding: 0;
     }
+
     .container {
       max-width: 600px;
-      margin: auto;
+      margin: 2rem auto;
       padding: 2rem;
+      background-color: #2d2d2d;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
     }
-    h2 { color: #c586c0; }
-    input, button {
+
+    h1,
+    h2 {
+      text-align: center;
+      color: #61dafb;
+    }
+
+    input,
+    button,
+    select {
       width: 100%;
-      padding: 0.8rem;
+      padding: 0.6rem;
       margin: 0.5rem 0;
-      background-color: #252526;
-      color: #d4d4d4;
-      border: 1px solid #3c3c3c;
-      border-radius: 4px;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
     }
-    button:hover {
-      background-color: #3c3c3c;
+
+    button {
+      cursor: pointer;
+      background-color: #007acc;
+      color: white;
     }
-    #adminPanel, #studentPanel {
+
+    #adminPanel,
+    #studentPanel {
       display: none;
-      border-top: 1px solid #3c3c3c;
-      margin-top: 2rem;
-      padding-top: 2rem;
     }
-    .hidden { display: none; }
   </style>
 </head>
+
 <body>
   <div class="container">
-    <h2>Student Attendance Panel</h2>
-    <div id="studentLogin">
-      <input type="text" id="studentName" placeholder="Enter your name">
-      <input type="text" id="studentRoll" placeholder="Enter your roll number">
-      <button onclick="markAttendance()">Mark Attendance</button>
-    </div>
+    <h1>BITS Attendance</h1>
 
-    <div id="adminLogin">
+    <div id="authSection">
       <h2>Admin Login</h2>
-      <input type="text" id="adminUsername" placeholder="Username">
-      <input type="password" id="adminPassword" placeholder="Password">
-      <button onclick="adminLogin()">Login</button>
+      <input type="text" id="adminUsername" placeholder="Admin Username" />
+      <input type="password" id="adminPassword" placeholder="Admin Password" />
+      <button onclick="adminLogin()">Login as Admin</button>
+
+      <h2>Student Login</h2>
+      <button onclick="studentLogin()">Login with BITS Email</button>
     </div>
 
     <div id="adminPanel">
       <h2>Admin Panel</h2>
-      <label>Start Attendance Session (minutes)</label>
-      <input type="number" id="sessionTime" placeholder="Minutes to keep attendance open">
-      <button onclick="startSession()">Start Attendance</button>
-      <br><br>
+      <label>Attendance End Time (24h format):</label>
+      <input type="time" id="endTime" />
+      <button onclick="startAttendanceSession()">Start Attendance</button>
       <button onclick="downloadCSV()">Download CSV</button>
+      <button onclick="clearAttendance()">Clear Data</button>
+    </div>
+
+    <div id="studentPanel">
+      <h2>Student Panel</h2>
+      <input type="text" id="studentName" placeholder="Your Name" />
+      <input type="text" id="rollNumber" placeholder="Roll Number" />
+      <button onclick="markAttendance()">Mark Attendance</button>
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.2/firebase-app.js";
+    import {
+      getAuth,
+      GoogleAuthProvider,
+      signInWithPopup,
+      signOut
+    } from "https://www.gstatic.com/firebasejs/10.5.2/firebase-auth.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      deleteDoc,
+      doc,
+      setDoc,
+      getDoc
+    } from "https://www.gstatic.com/firebasejs/10.5.2/firebase-firestore.js";
+
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT_ID.firebaseio.com",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
       projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.appspot.com",
-      messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
       appId: "YOUR_APP_ID"
     };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
 
-    let isAdmin = false;
-    let sessionEndTime = 0;
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    const db = getFirestore(app);
+
+    const adminPanel = document.getElementById("adminPanel");
+    const studentPanel = document.getElementById("studentPanel");
+    const authSection = document.getElementById("authSection");
 
     function adminLogin() {
-      const username = document.getElementById("adminUsername").value;
-      const password = document.getElementById("adminPassword").value;
-      if (username === "adityapandey" && password === "India@123") {
-        isAdmin = true;
-        document.getElementById("adminPanel").style.display = "block";
-        alert("Admin logged in");
+      const user = document.getElementById("adminUsername").value;
+      const pass = document.getElementById("adminPassword").value;
+      if (user === "adityapandey" && pass === "India@123") {
+        authSection.style.display = "none";
+        adminPanel.style.display = "block";
       } else {
-        alert("Invalid credentials");
+        alert("Invalid admin credentials");
       }
     }
 
-    function startSession() {
-      if (!isAdmin) return;
-      const minutes = parseInt(document.getElementById("sessionTime").value);
-      const now = Date.now();
-      sessionEndTime = now + minutes * 60 * 1000;
-      db.ref("session").set({ endTime: sessionEndTime });
-      alert(`Session started for ${minutes} minutes`);
+    async function studentLogin() {
+      try {
+        const result = await signInWithPopup(auth, provider);
+        const email = result.user.email;
+        if (!email.endsWith("@pilani.bits-pilani.ac.in") &&
+            !email.endsWith("@goa.bits-pilani.ac.in") &&
+            !email.endsWith("@hyderabad.bits-pilani.ac.in")) {
+          alert("Only BITS email allowed");
+          await signOut(auth);
+          return;
+        }
+        authSection.style.display = "none";
+        studentPanel.style.display = "block";
+      } catch (error) {
+        console.error(error);
+      }
     }
 
-    function markAttendance() {
-      const name = document.getElementById("studentName").value;
-      const roll = document.getElementById("studentRoll").value;
+    async function startAttendanceSession() {
+      const time = document.getElementById("endTime").value;
+      await setDoc(doc(db, "session", "current"), {
+        endTime: time
+      });
+      alert("Session started till " + time);
+    }
 
-      if (!name || !roll) {
-        alert("Please enter name and roll number");
+    async function markAttendance() {
+      const name = document.getElementById("studentName").value;
+      const roll = document.getElementById("rollNumber").value;
+      const user = auth.currentUser;
+
+      if (!name || !roll || !user) {
+        alert("All fields required");
         return;
       }
 
-      db.ref("session").once("value", snapshot => {
-        const session = snapshot.val();
-        if (!session || Date.now() > session.endTime) {
-          alert("Attendance session not active");
-          return;
-        }
-        db.ref(`attendance/${roll}`).once("value", snap => {
-          if (snap.exists()) {
-            alert("Attendance already marked");
-          } else {
-            db.ref(`attendance/${roll}`).set({
-              name: name,
-              timestamp: new Date().toISOString()
-            });
-            alert("Attendance marked");
-          }
-        });
+      const sessionSnap = await getDoc(doc(db, "session", "current"));
+      const sessionData = sessionSnap.data();
+      const currentTime = new Date();
+      const [h, m] = sessionData.endTime.split(":");
+      const endTime = new Date();
+      endTime.setHours(h, m);
+
+      if (currentTime > endTime) {
+        alert("Attendance time over");
+        return;
+      }
+
+      const attendRef = collection(db, "attendance");
+      const snapshot = await getDocs(attendRef);
+      const alreadyMarked = snapshot.docs.find(
+        doc => doc.data().email === user.email
+      );
+
+      if (alreadyMarked) {
+        alert("Attendance already marked");
+        return;
+      }
+
+      await addDoc(attendRef, {
+        name,
+        roll,
+        email: user.email,
+        time: new Date().toLocaleString()
       });
+      alert("Attendance marked");
     }
 
-    function downloadCSV() {
-      if (!isAdmin) return alert("Access denied");
-
-      db.ref("attendance").once("value", snapshot => {
-        const data = snapshot.val();
-        let csv = "Name,Roll Number,Timestamp\n";
-        for (const roll in data) {
-          const row = data[roll];
-          csv += `${row.name},${roll},${row.timestamp}\n`;
-        }
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "attendance.csv";
-        a.click();
-        URL.revokeObjectURL(url);
-
-        // Clear data after download
-        db.ref("attendance").remove();
-        db.ref("session").remove();
+    async function downloadCSV() {
+      const snapshot = await getDocs(collection(db, "attendance"));
+      let csv = "Name,Roll,Email,Time\n";
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        csv += `${d.name},${d.roll},${d.email},${d.time}\n`;
       });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "attendance.csv";
+      link.click();
+    }
+
+    async function clearAttendance() {
+      const snapshot = await getDocs(collection(db, "attendance"));
+      for (let docu of snapshot.docs) {
+        await deleteDoc(doc(db, "attendance", docu.id));
+      }
+      alert("Attendance data cleared");
     }
   </script>
 </body>
+
 </html>
