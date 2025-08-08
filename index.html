@@ -1,0 +1,24 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BITS Attendance</title>
+</head>
+<body>
+    <h1>BITS Attendance Portal</h1>
+    <button onclick="signIn()">Login with BITS Email</button>
+    <div id="attendance-section" style="display:none;">
+        <p>Name: <input id="name" /></p>
+        <p>Roll Number: <input id="roll" /></p>
+        <button onclick="markAttendance()">Mark Attendance</button>
+    </div>
+    <div id="admin-section" style="display:none;">
+        <button onclick="downloadCSV()">Download Attendance CSV</button>
+    </div>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
