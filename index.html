@@ -1,24 +1,174 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
     <title>BITS Attendance</title>
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-firestore.js"></script>
 </head>
 <body>
-    <h1>BITS Attendance Portal</h1>
-    <button onclick="signIn()">Login with BITS Email</button>
-    <div id="attendance-section" style="display:none;">
-        <p>Name: <input id="name" /></p>
-        <p>Roll Number: <input id="roll" /></p>
+    <h1>BITS Attendance System</h1>
+
+    <div id="authSection">
+        <button onclick="googleLogin()">Login with BITS Email</button>
+        <br><br>
+        <div id="adminLoginDiv">
+            <input type="text" id="adminUsername" placeholder="Admin Username">
+            <input type="password" id="adminPassword" placeholder="Admin Password">
+            <button onclick="adminLogin()">Admin Login</button>
+        </div>
+    </div>
+
+    <div id="attendanceForm" style="display:none;">
+        <h2>Mark Attendance</h2>
+        <p id="userInfo"></p>
+        <input type="text" id="studentName" placeholder="Your Name"><br>
+        <input type="text" id="rollNumber" placeholder="Your Roll Number"><br>
         <button onclick="markAttendance()">Mark Attendance</button>
+        <p id="attendanceStatus"></p>
+        <button onclick="logout()">Logout</button>
     </div>
-    <div id="admin-section" style="display:none;">
+
+    <div id="adminPanel" style="display:none;">
+        <h2>Admin Dashboard</h2>
+        <p id="adminStatus"></p>
+        <label>Attendance Ends In (Minutes):</label>
+        <input type="number" id="timeLimit" min="1" value="5">
+        <button onclick="startAttendanceSession()">Start Attendance</button>
         <button onclick="downloadCSV()">Download Attendance CSV</button>
+        <button onclick="logout()">Logout</button>
     </div>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-    <script src="script.js"></script>
+
+    <script>
+        // Your Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyDPW9PvCnT2MJKQvqW8W93CgHAPjnsgOY8",
+            authDomain: "at-prp.firebaseapp.com",
+            projectId: "at-prp",
+            storageBucket: "at-prp.appspot.com",
+            messagingSenderId: "737228081010",
+            appId: "1:737228081010:web:88b9f02d6fca760398bfeb"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        let currentUserEmail = "";
+        let isAdmin = false;
+
+        function googleLogin() {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider).then(result => {
+                const email = result.user.email;
+                if (!email.endsWith("@pilani.bits-pilani.ac.in")) {
+                    alert("Only BITS Pilani emails allowed!");
+                    auth.signOut();
+                } else {
+                    currentUserEmail = email;
+                    document.getElementById("userInfo").innerText = "Logged in as: " + email;
+                    document.getElementById("authSection").style.display = "none";
+                    document.getElementById("attendanceForm").style.display = "block";
+                }
+            }).catch(console.error);
+        }
+
+        function adminLogin() {
+            const username = document.getElementById("adminUsername").value;
+            const password = document.getElementById("adminPassword").value;
+            if (username === "adityapandey" && password === "India@123") {
+                isAdmin = true;
+                document.getElementById("authSection").style.display = "none";
+                document.getElementById("adminPanel").style.display = "block";
+                document.getElementById("adminStatus").innerText = "Logged in as admin: " + username;
+            } else {
+                alert("Invalid admin credentials");
+            }
+        }
+
+        function logout() {
+            auth.signOut().then(() => location.reload());
+        }
+
+        function startAttendanceSession() {
+            const mins = parseInt(document.getElementById("timeLimit").value);
+            const now = new Date();
+            const endTime = new Date(now.getTime() + mins * 60000);
+            db.collection("session").doc("active").set({
+                endTime: firebase.firestore.Timestamp.fromDate(endTime)
+            }).then(() => {
+                alert("Attendance session started for " + mins + " minutes.");
+            });
+        }
+
+        async function markAttendance() {
+            const name = document.getElementById("studentName").value.trim();
+            const roll = document.getElementById("rollNumber").value.trim();
+            const email = currentUserEmail;
+
+            if (!name || !roll) {
+                document.getElementById("attendanceStatus").innerText = "Fill in all details.";
+                return;
+            }
+
+            const sessionDoc = await db.collection("session").doc("active").get();
+            if (!sessionDoc.exists) {
+                document.getElementById("attendanceStatus").innerText = "No active session.";
+                return;
+            }
+
+            const endTime = sessionDoc.data().endTime.toDate();
+            if (new Date() > endTime) {
+                document.getElementById("attendanceStatus").innerText = "Session expired.";
+                return;
+            }
+
+            const docRef = db.collection("attendance").doc(roll);
+            const existing = await docRef.get();
+            if (existing.exists) {
+                document.getElementById("attendanceStatus").innerText = "Already marked.";
+                return;
+            }
+
+            await docRef.set({
+                name,
+                roll,
+                email,
+                timestamp: firebase.firestore.Timestamp.now()
+            });
+
+            document.getElementById("attendanceStatus").innerText = "Attendance marked successfully!";
+        }
+
+        async function downloadCSV() {
+            const snapshot = await db.collection("attendance").get();
+            let csv = "Name,Roll Number,Email,Timestamp\n";
+            snapshot.forEach(doc => {
+                const d = doc.data();
+                csv += `${d.name},${d.roll},${d.email},${d.timestamp.toDate().toLocaleString()}\n`;
+            });
+
+            // Clear after download
+            await clearAttendance();
+
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "attendance.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        async function clearAttendance() {
+            const snapshot = await db.collection("attendance").get();
+            const batch = db.batch();
+            snapshot.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+        }
+    </script>
 </body>
 </html>
